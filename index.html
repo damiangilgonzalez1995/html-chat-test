@@ -4,7 +4,7 @@
     <style>
         .chat-container {
             width: 100%;
-            height: 80vh; /* Ocupará el 80% de la altura de la ventana */
+            height: 80vh;
             border: 1px solid #ccc;
             border-radius: 8px;
             display: flex;
@@ -45,6 +45,7 @@
             padding: 20px;
             border-top: 1px solid #eee;
             background: white;
+            align-items: center;
         }
 
         .chat-input input {
@@ -62,10 +63,28 @@
             border: none;
             border-radius: 20px;
             cursor: pointer;
+            margin: 0 5px;
         }
 
         .chat-input button:hover {
             background: #0056b3;
+        }
+
+        .recording {
+            animation: pulse 1.5s infinite;
+            background: #dc3545 !important;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .loading {
+            display: none;
+            margin: 10px auto;
+            text-align: center;
         }
     </style>
 </head>
@@ -73,28 +92,104 @@
     <div class="chat-container">
         <div class="chat-messages" id="chatMessages">
             <div class="message assistant-message">
-                ¡Hola! ¿En qué puedo ayudarte?
+                ¡Hola! ¿En qué puedo ayudarte? Puedes escribir o usar el micrófono para hablar.
             </div>
+        </div>
+        <div class="loading" id="loading">
+            Procesando...
         </div>
         <div class="chat-input">
             <input type="text" id="messageInput" placeholder="Escribe tu mensaje aquí...">
+            <button id="micButton" onclick="toggleRecording()">🎤</button>
             <button onclick="sendMessage()">Enviar</button>
         </div>
     </div>
 
     <script>
-        function sendMessage() {
+        let isRecording = false;
+        let recognition = null;
+
+        // Configurar el reconocimiento de voz
+        function setupSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.lang = 'es-ES';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+
+                recognition.onresult = async function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById('messageInput').value = transcript;
+                    // Enviar automáticamente el mensaje cuando se complete la transcripción
+                    await sendMessage();
+                };
+
+                recognition.onend = function() {
+                    isRecording = false;
+                    document.getElementById('micButton').classList.remove('recording');
+                };
+            }
+        }
+
+        // Alternar grabación de audio
+        function toggleRecording() {
+            if (!recognition) {
+                setupSpeechRecognition();
+            }
+
+            if (!isRecording) {
+                recognition.start();
+                isRecording = true;
+                document.getElementById('micButton').classList.add('recording');
+            } else {
+                recognition.stop();
+                isRecording = false;
+                document.getElementById('micButton').classList.remove('recording');
+            }
+        }
+
+        async function sendMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
+            const loading = document.getElementById('loading');
             
             if (message) {
                 // Añadir mensaje del usuario
                 addMessage(message, 'user-message');
                 
-                // Simular respuesta del asistente
-                setTimeout(() => {
-                    addMessage('Este es un mensaje de ejemplo del asistente. En una implementación real, aquí iría la respuesta de tu API.', 'assistant-message');
-                }, 1000);
+                // Mostrar indicador de carga
+                loading.style.display = 'block';
+                
+                try {
+                    // Enviar mensaje al webhook
+                    const response = await fetch('https://n8n-sn4a.onrender.com/webhook-test/453e40c9-a590-4a7b-a92c-b7f733c66727', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: message
+                        })
+                    });
+
+                    // Esperar y procesar la respuesta
+                    const data = await response.json();
+                    
+                    // Añadir la respuesta al chat
+                    if (data && data.message) {
+                        addMessage(data.message, 'assistant-message');
+                    } else {
+                        addMessage('No se recibió una respuesta válida del servidor.', 'assistant-message');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error:', error);
+                    addMessage('Lo siento, ha ocurrido un error al procesar tu mensaje.', 'assistant-message');
+                }
+                
+                // Ocultar indicador de carga
+                loading.style.display = 'none';
                 
                 // Limpiar input
                 input.value = '';
@@ -116,6 +211,9 @@
                 sendMessage();
             }
         });
+
+        // Inicializar reconocimiento de voz
+        setupSpeechRecognition();
     </script>
 </body>
 </html>
